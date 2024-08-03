@@ -13,25 +13,18 @@ static bool g_exit = true;
 #define LOGE(format, ...) fprintf(stderr, "ERR [%s:%d]:" format "\n",  __FUNCTION__,__LINE__, ## __VA_ARGS__)
 
 static handle_encode_data_t g_handle_encode_data = NULL;
+static AVFormatContext *av_format_context = NULL;
+static AVCodecContext *codec_ctx = NULL;
 
-void screen_capture_set_handle_data(handle_encode_data_t handle) {
+static AVPacket *packet = NULL;
+static AVFrame *g_frame = NULL;
+static pthread_t capture_hr;
+
+void capture_screen_set_handle_data(handle_encode_data_t handle) {
     g_handle_encode_data = handle;
 }
 
 static void handle_encode_output(uint8_t *buf, int len) {
-#if 0
-    static FILE *out_file = NULL;
-    if (NULL == out_file) {
-        out_file = fopen("output.h265", "wb");
-        if (out_file == NULL) {
-            LOGE("fopen failed\n");
-            return;
-        }
-    }
-    // 写入文件
-    fwrite(buf, 1, len, out_file);
-    fflush(out_file);
-#endif
     if (NULL != g_handle_encode_data) {
         g_handle_encode_data(buf, len);
     }
@@ -154,7 +147,7 @@ void encode(AVFrame *frame) {
                                frame->linesize,
                                0,
                                frame->height,
-                               (const uint8_t *const *)sws_out_frame->data,
+                               (uint8_t *const *) sws_out_frame->data,
                                sws_out_frame->linesize
     );
     if (out_height <0) {
@@ -175,7 +168,7 @@ void encode(AVFrame *frame) {
         ret = avcodec_receive_packet(codec_ctx, pkt);
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
             return;
-        }else if(ret < 0) {
+        } else if(ret < 0) {
             fprintf(stderr, "Error during encoding\n");
             return;
         }
@@ -189,11 +182,57 @@ void encode(AVFrame *frame) {
 }
 
 
-void *th_capture_screen(void *arg) {
+void *th_read_video_frame(void *arg) {
+    int ret;
+    while (!g_exit && av_read_frame(av_format_context, packet) >= 0) {
+        // 解码
+        ret = avcodec_send_packet(codec_ctx, packet);
+        if (ret < 0 || ret == AVERROR(EAGAIN)) {
+            fprintf(stderr, "avcodec_send_packet not ready\n");
+            break;
+        }
+        // 查看是否解码结束
+        ret = avcodec_receive_frame(codec_ctx, g_frame);
+        if (ret < 0) {
+            fprintf(stderr, "avcodec_receive_frame failed\n");
+            break;
+        }
+        printf("Frame %c (%d) pts %d dts %d key_frame %d [coded_picture_number %d, display_picture_number %d] format %d"
+               "\n",
+               av_get_picture_type_char(g_frame->pict_type),
+               codec_ctx->frame_number,
+               g_frame->pts,
+               g_frame->pkt_dts,
+               g_frame->key_frame,
+               g_frame->coded_picture_number,
+               g_frame->display_picture_number,
+               g_frame->format
+        );
+#if 0
+        // 缩放
+        sws_scale(sws_ctx,
+                  (const uint8_t *const *) frame->data,
+                  frame->linesize,
+                  0,
+                  frame->height,
+                  result->data,
+                  result->linesize);
+        printf("scale play output %dx%d=>%dx%d\n", frame->width, frame->height, result->width, result->height);
+#endif
+        // 发送到编码器
+        encode(g_frame);
+
+        // 清理内存,避免内存泄露
+        av_frame_unref(g_frame);
+        av_packet_unref(packet);
+    }
+    return NULL;
+}
+
+int capture_screen_start() {
     int ret = 0;
     avdevice_register_all();
 
-    AVFormatContext *av_format_context = avformat_alloc_context();
     const AVInputFormat *av_input_format = av_find_input_format("gdigrab");
 
     // 查看所有的输入设备,linux和windows不一样
@@ -206,7 +245,7 @@ void *th_capture_screen(void *arg) {
     // 捕获区域跟随鼠标走,鼠标在中心
 //    av_dict_set(&options, "follow_mouse", "centered", 0);
     // 捕获的图像大小,默认是全屏
-//    av_dict_set(&options, "video_size", "1280x720", 0);
+    av_dict_set(&options, "video_size", "1280x720", 0);
 
     ret = avformat_open_input(&av_format_context, "desktop", av_input_format, &options);
     if (ret != 0) {
@@ -227,7 +266,7 @@ void *th_capture_screen(void *arg) {
 
     // 创建解码器
     AVCodecParameters *codec_parameters = av_format_context->streams[0]->codecpar;
-    AVCodec *codec = avcodec_find_decoder(codec_parameters->codec_id);
+    const AVCodec *codec = avcodec_find_decoder(codec_parameters->codec_id);
 
     printf("Video Codec: %d x %d\n", codec_parameters->width, codec_parameters->height);
 
@@ -237,7 +276,7 @@ void *th_capture_screen(void *arg) {
     printf("Codec %s ID %d bit_rate %ld\n", codec->long_name, codec->id, codec_parameters->bit_rate);
     printf("codec name %s\n", codec->name);
 
-    AVCodecContext *codec_ctx = avcodec_alloc_context3(codec);
+    codec_ctx = avcodec_alloc_context3(codec);
     avcodec_parameters_to_context(codec_ctx, codec_parameters);
     if (0 != avcodec_open2(codec_ctx, codec, NULL)) {
         fprintf(stderr, "avcodec_open2 failed\n");
@@ -245,101 +284,24 @@ void *th_capture_screen(void *arg) {
     }
 
     // 获取一个帧
-    AVPacket *packet = av_packet_alloc();
-    AVFrame *frame = av_frame_alloc();
+    packet = av_packet_alloc();
+    g_frame = av_frame_alloc();
 
-    // 格式转码
-#if 0
-    AVFrame *result = av_frame_alloc();
-    result->format = AV_PIX_FMT_RGB24;
-    int render_w = codec_parameters->width * scale;
-    int render_h = codec_parameters->height *scale;
-    result->width = render_w;
-    result->height = render_h;
-    av_frame_get_buffer(result, 1);
-#endif
-
-#if 0
-    // 缩放
-    struct SwsContext *sws_ctx = NULL;
-    sws_ctx = sws_getContext(
-            // input size
-            codec_parameters->width, codec_parameters->height, codec_parameters->format,
-            // output size
-            result->width, result->height, result->format,
-            // 放缩算法
-            SWS_BILINEAR,
-            NULL, NULL, NULL);
-#endif
-    while (!g_exit && av_read_frame(av_format_context, packet) >= 0) {
-        // 解码
-        ret = avcodec_send_packet(codec_ctx, packet);
-        if (ret < 0 || ret == AVERROR(EAGAIN)) {
-            fprintf(stderr, "avcodec_send_packet not ready\n");
-            break;
-        }
-        // 查看是否解码结束
-        ret = avcodec_receive_frame(codec_ctx, frame);
-        if (ret < 0) {
-            fprintf(stderr, "avcodec_receive_frame failed\n");
-            break;
-        }
-        printf("Frame %c (%d) pts %d dts %d key_frame %d [coded_picture_number %d, display_picture_number %d] format %d"
-               "\n",
-               av_get_picture_type_char(frame->pict_type),
-               codec_ctx->frame_number,
-               frame->pts,
-               frame->pkt_dts,
-               frame->key_frame,
-               frame->coded_picture_number,
-               frame->display_picture_number,
-               frame->format
-        );
-#if 0
-        // 缩放
-        sws_scale(sws_ctx,
-                  (const uint8_t *const *) frame->data,
-                  frame->linesize,
-                  0,
-                  frame->height,
-                  result->data,
-                  result->linesize);
-        printf("scale play output %dx%d=>%dx%d\n", frame->width, frame->height, result->width, result->height);
-#endif
-        // 发送到编码器
-        encode(frame);
-
-        // 清理内存,避免内存泄露
-        av_frame_unref(frame);
-        av_packet_unref(packet);
-    }
-
-    // 释放资源
-#if 0
-    sws_freeContext(sws_ctx);
-    av_frame_free(&result);
-#endif
-    av_frame_free(&frame);
-    av_packet_free(&packet);
-    avcodec_close(codec_ctx);
-    avcodec_free_context(&codec_ctx);
-
-    avformat_close_input(&av_format_context);
-    avformat_free_context(av_format_context);
-
-    return NULL;
-}
-
-static pthread_t capture_hr;
-
-int start_capture() {
     g_exit = false;
-    pthread_create(&capture_hr, NULL, th_capture_screen, NULL);
+    pthread_create(&capture_hr, NULL, th_read_video_frame, NULL);
+
     return 0;
 }
 
-int stop_capture() {
+int capture_screen_stop() {
     g_exit = true;
     pthread_join(capture_hr, NULL);
+
+    av_frame_free(&g_frame);
+    av_packet_free(&packet);
+    avcodec_close(codec_ctx);
+    avcodec_free_context(&codec_ctx);
+    avformat_close_input(&av_format_context);
+
     return 0;
 }

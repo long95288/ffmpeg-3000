@@ -21,11 +21,11 @@ void handle_nalu_data(uint8_t *buf, int len) {
 }
 int main(int argc,char *argv[]) {
 
-    screen_capture_set_handle_data(handle_nalu_data);
-    start_capture();
+    capture_screen_set_handle_data(handle_nalu_data);
+    capture_screen_start();
 
-    sleep(4);
+    sleep(10);
 
-    stop_capture();
+    capture_screen_stop();
     return 0;
 }
