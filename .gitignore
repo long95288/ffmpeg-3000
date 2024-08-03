@@ -1,5 +1,6 @@
 .idea/
 .vscode/
-dep/
+dep/*
+!dep/readme.md
 cmake-build-debug/
 build/
