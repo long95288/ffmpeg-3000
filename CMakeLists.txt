@@ -13,7 +13,11 @@ set(ffmpeg_lib
         )
 
 
-add_library(capture_screen ${CMAKE_CURRENT_SOURCE_DIR}/capture_screen/capture_screen.c)
+add_library(capture_screen
+        ${CMAKE_CURRENT_SOURCE_DIR}/capture_screen/capture_screen_windows.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/capture_screen/video_encode.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/capture_screen/video_scale.c
+        )
 #
 add_executable(capture_screen_test  ${CMAKE_CURRENT_SOURCE_DIR}/capture_screen/capture_screen_test.c )
 target_link_libraries(capture_screen_test capture_screen ${ffmpeg_lib})
@@ -27,3 +31,7 @@ target_link_libraries(capture_audio_test capture_audio  ${ffmpeg_lib})
 add_library(decode_audio ${CMAKE_CURRENT_SOURCE_DIR}/codec_audio/decode_audio.c)
 add_executable(decode_audio_test  ${CMAKE_CURRENT_SOURCE_DIR}/codec_audio/decode_audio_test.c)
 target_link_libraries(decode_audio_test decode_audio  ${ffmpeg_lib})
+
+#test
+add_executable(audio_resample_test codec_audio/audio_resample_test.c)
+target_link_libraries(audio_resample_test ${ffmpeg_lib})
