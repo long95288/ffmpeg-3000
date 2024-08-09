@@ -9,6 +9,6 @@ capture screen & encode to hev & save to file
 
 ### TBD
 - [x] windows support
-- [ ] linux support
+- [x] linux support
 
 
