@@ -104,11 +104,16 @@ int video_encode_process(void *ctx, struct AVFrame *frame) {
         }
         printf("Write packet %3" PRId64 " (size=%5d)\n", packet->pts, packet->size);
         // 写入文件
-        if (NULL != ectx->func) ectx->func(ctx, packet->data, packet->size);
+        if (NULL != ectx->func) ectx->func(ctx, packet);
         
         av_packet_unref(packet);
     }
     printf("encode one frame success\n");
     return 0;
+}
+
+AVCodecContext *video_encode_get_codec_ctx(void *ctx) {
+    encode_ctx_t *ectx = ctx;
+    return ectx->codec_ctx; // may be nil
 }
 

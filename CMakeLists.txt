@@ -44,3 +44,9 @@ target_link_libraries(simple_read_h265_file_test ${ffmpeg_lib})
 
 add_executable(simple_read_h265_file_test2 codec_video/simple_read_h265_file_test2.c)
 target_link_libraries(simple_read_h265_file_test2 ${ffmpeg_lib})
+
+include_directories(capture_screen)
+add_executable(video_capture_mux_out_mp4 muxing/video_capture_mux_out_mp4.c)
+target_link_libraries(video_capture_mux_out_mp4 capture_screen ${ffmpeg_lib})
+
+
