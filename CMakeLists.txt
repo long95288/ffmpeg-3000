@@ -36,6 +36,13 @@ target_link_libraries(decode_audio_test decode_audio  ${ffmpeg_lib})
 add_executable(audio_resample_test codec_audio/audio_resample_test.c)
 target_link_libraries(audio_resample_test ${ffmpeg_lib})
 
+add_executable(audio_resample_test2 codec_audio/audio_resample_test2.c)
+target_link_libraries(audio_resample_test2 ${ffmpeg_lib})
+
+add_executable(audio_encode_test codec_audio/audio_encode_test.c)
+target_link_libraries(audio_encode_test ${ffmpeg_lib})
+
+
 add_executable(simple_read_g711a_file_test codec_audio/simple_read_g711a_file_test.c)
 target_link_libraries(simple_read_g711a_file_test ${ffmpeg_lib})
 
