@@ -56,4 +56,8 @@ include_directories(capture_screen)
 add_executable(video_capture_mux_out_mp4 muxing/video_capture_mux_out_mp4.c)
 target_link_libraries(video_capture_mux_out_mp4 capture_screen ${ffmpeg_lib})
 
+add_library(video_filter STATIC filter/video_filter.c)
+include_directories(filter)
+add_executable(video_filter_test filter/video_filter_test.c)
+target_link_libraries(video_filter_test video_filter capture_screen ${ffmpeg_lib})
 
